@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"strconv"
 
 	"http.go/internal/headers"
 )
@@ -15,6 +16,7 @@ const (
 	stateDone    parserState = "done"
 	stateError   parserState = "error"
 	stateHeaders parserState = "headers"
+	stateBody    parserState = "body"
 )
 
 type RequestLine struct {
@@ -27,6 +29,26 @@ type Request struct {
 	RequestLine RequestLine
 	Headers     *headers.Headers
 	state       parserState
+	Body        string
+}
+
+func getInt(headers *headers.Headers, key string, defaultValue int) int {
+	v, exists := headers.Get(key)
+	if !exists {
+		return defaultValue
+	}
+
+	value, err := strconv.Atoi(v)
+	if err != nil {
+		return defaultValue
+	}
+
+	return value
+}
+
+func (r *Request)hasBody()bool{
+	length := getInt(r.Headers, "content-length", 0)
+	return length > 0 
 }
 
 var ErrorMalformedRequest = fmt.Errorf("malformed request-line")
@@ -41,6 +63,9 @@ func (r *Request) parse(data []byte) (int, error) {
 outer:
 	for {
 		currentData := data[read:]
+		if len(currentData)==0{
+			break outer
+		}
 
 		switch r.state {
 		case stateError:
@@ -65,6 +90,7 @@ outer:
 		case stateHeaders:
 			n, done, err := r.Headers.Parse(currentData)
 			if err != nil {
+				r.state = stateError
 				return 0, err
 			}
 
@@ -75,6 +101,24 @@ outer:
 			read += n
 
 			if done {
+				if r.hasBody(){
+					r.state = stateBody
+				}else{
+					r.state=stateDone
+				}
+			}
+
+		case stateBody:
+			length := getInt(r.Headers, "content-length", 0)
+			if length == 0 {
+				panic("chunked not implemented")
+			}
+
+			remaining := min(length-len(r.Body), len(currentData))
+			r.Body += string(currentData[:remaining])
+			read += remaining
+
+			if len(r.Body) == length {
 				r.state = stateDone
 			}
 
@@ -96,6 +140,7 @@ func NewRequest() *Request {
 	return &Request{
 		state:   stateInit,
 		Headers: headers.NewHeaders(),
+		Body:    "",
 	}
 }
 
@@ -137,14 +182,14 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		if err != nil {
 			return nil, err
 		}
-		
+
 		bufLen += n
-		
+
 		readN, err := request.parse(buf[:bufLen])
 		if err != nil {
 			return nil, err
 		}
-		
+
 		copy(buf, buf[readN:bufLen])
 		bufLen -= readN
 	}

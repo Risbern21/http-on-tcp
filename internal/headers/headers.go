@@ -31,8 +31,9 @@ type Headers struct {
 	headers map[string]string
 }
 
-func (h *Headers) Get(key string) string {
-	return h.headers[strings.ToLower(key)]
+func (h *Headers) Get(key string) (string,bool) {
+	value,exists:=h.headers[strings.ToLower(key)]
+	return value,exists
 }
 
 func (h *Headers) Set(key string, value string) {
