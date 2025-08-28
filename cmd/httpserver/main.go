@@ -1,34 +1,107 @@
 package main
 
 import (
-	"io"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"http.go/internal/request"
+	"http.go/internal/response"
 	"http.go/internal/server"
 )
 
 const port = 42069
 
+func respond400() []byte {
+	return []byte(`<html>
+  	<head>
+    	<title>400 Bad Request</title>
+  	</head>
+  	<body>
+    	<h1>Bad Request</h1>
+    	<p>Your request honestly kinda sucked.</p>
+  	</body>
+	</html>`)
+}
+
+func respond500() []byte {
+	return []byte(`<html>
+	<head>
+	    <title>500 Internal Server Error</title>
+	</head>
+	<body>
+		<h1>Internal Server Error</h1>
+	    <p>Okay, you know what? This one is on me.</p>
+	</body>
+	</html>
+`)
+}
+
+func respond200() []byte {
+	return []byte(`<html>
+	<head>
+		<title>200 OK</title>
+	</head>
+	<body>
+	    <h1>Success!</h1>
+	    <p>Your request was an absolute banger.</p>
+	</body>
+	</html>`)
+}
+
 func main() {
-	server, err := server.Serve(port, func(w io.Writer, r *request.Request) *server.HandlerError {
+	server, err := server.Serve(port, func(w *response.Writer, r *request.Request) {
+		h := response.GetDefaultHeaders(0)
+		body := respond200()
+		status := response.StatusOK
+
 		if r.RequestLine.RequestTarget == "/yourproblem" {
-			return &server.HandlerError{
-				StatusCode: 400,
-				Message: "Your problem is not my problem\n",
-			}
+			body = respond400()
+			status = response.StatusBadRequest
 		} else if r.RequestLine.RequestTarget == "/myproblem" {
-			return &server.HandlerError{
-				StatusCode: 500,
-				Message: "Woopsie, my bad\n",
+			body = respond500()
+			status = response.StatusInternalServerError
+		} else if strings.HasPrefix(r.RequestLine.RequestTarget, "/httpbin/stream") {
+			target := r.RequestLine.RequestTarget
+			r, err := http.Get("https://httpbin.org/" + target[len("/httpbin/"):])
+			if err != nil {
+				body = respond500()
+				status = response.StatusInternalServerError
+			} else {
+				w.WriteStatusLine(response.StatusOK)
+
+				h.Delete("content-length")
+				h.Set("content-encoding", "chunked")
+				h.Replace("Content-Type", "text/plain")
+				
+				w.WriteHeaders(h)
+
+				for {
+					data := make([]byte, 32)
+					n, err := r.Body.Read(data)
+					if err!=nil{
+						break
+					}
+					//write the hex
+					w.WriteBody([]byte(fmt.Sprintf("%x\r\n",n)))
+					//write the data
+					w.WriteBody(data[:n])
+					w.WriteBody([]byte("\r\n"))
+				}
+				w.WriteBody([]byte("0\r\n\r\n"))
+				return 
 			}
-		} else {
-			w.Write([]byte("all good frfr\n"))
 		}
-		return nil
+
+		h.Replace("Content-Length", fmt.Sprintf("%d", len(body)))
+		h.Replace("Content-Type", "text/html")
+		w.WriteStatusLine(status)
+		w.WriteHeaders(h)
+		w.WriteBody(body)
 	})
 	if err != nil {
 		log.Fatalf("Error starting server: %v", err)
