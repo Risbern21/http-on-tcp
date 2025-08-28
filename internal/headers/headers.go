@@ -19,7 +19,6 @@ func isToken(str []byte) bool {
 			found = true
 		}
 
-
 		if !found {
 			return false
 		}
@@ -31,24 +30,29 @@ type Headers struct {
 	headers map[string]string
 }
 
-func (h *Headers) Get(key string) (string,bool) {
-	value,exists:=h.headers[strings.ToLower(key)]
-	return value,exists
+func (h *Headers) Get(key string) (string, bool) {
+	value, exists := h.headers[strings.ToLower(key)]
+	return value, exists
 }
 
 func (h *Headers) Set(key string, value string) {
-	hKey := strings.ToLower(key)
+	key = strings.ToLower(key)
 
-	if v, ok := h.headers[hKey]; ok {
-		h.headers[hKey] = fmt.Sprintf("%s,%s", v, value)
+	if v, ok := h.headers[key]; ok {
+		h.headers[key] = fmt.Sprintf("%s,%s", v, value)
 	} else {
-		h.headers[hKey] = value
+		h.headers[key] = value
 	}
 }
 
-func (h *Headers)ForEach(cb func(k,v string)){
-	for k,v:=range h.headers{
-		cb(k,v)
+func (h *Headers) Replace(key, value string) {
+	key= strings.ToLower(key)
+	h.headers[key] = value
+}
+
+func (h *Headers) ForEach(cb func(k, v string)) {
+	for k, v := range h.headers {
+		cb(k, v)
 	}
 }
 
